@@ -1,0 +1,7 @@
+*.log
+*.csv
+src/model_parser.rs
+/target
+**/*.rs.bk
+/output
+*.rustfmt

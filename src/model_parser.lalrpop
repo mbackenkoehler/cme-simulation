@@ -1,0 +1,190 @@
+#![allow(unused_parens,dead_code,unknown_lints,clippy,unused_extern_crates,deprecated)]
+
+use lalrpop_util::ErrorRecovery;
+use std::collections::HashMap;
+use std::str::FromStr;
+use ast::{Expr, Opcode, Ident, SpeciesType, Reaction, ReactionNetwork};
+
+grammar<'err>(errors: &'err mut Vec<ErrorRecovery<usize, (usize, &'input str), ()>>);
+
+pub ReactionNetwork: ReactionNetwork = {
+    <ParameterSection> <SpeciesSection> <ReactionSection> <InitSection>
+        => ReactionNetwork::new(<>)
+};
+
+ReactionSection: Vec<Reaction> = {
+    ReactionSectionKW <reactions_: Reaction*> => {
+      let mut reactions = Vec::new();
+      let mut reactions_ = reactions_;
+      for rs in reactions_.drain(..) {
+          reactions.extend(rs);
+      }
+      reactions
+    }
+};
+
+ReactionSectionKW = { "reactions" };
+
+pub Reaction: Vec<Reaction> = {
+    <products: Amount> BArrow <reactants: Amount> "@" <propensity: Expr> ";" => {
+        vec![Reaction::new(reactants, products, propensity)]
+    },
+    <reactants: Amount> Arrow <products: Amount> "@" <propensity: Expr> ";" => {
+        vec![Reaction::new(reactants, products, propensity)]
+    },
+    <reactants: Amount> DoubleArrow <products: Amount> "@" <prop2: Expr> "," <prop1: Expr> ";" => {
+        vec![Reaction::new(reactants.clone(), products.clone(), prop2),
+             Reaction::new(products, reactants, prop1),
+        ]
+    }
+};
+
+BArrow = { "<-", "<=" };
+
+Arrow = { "->", "=>" };
+
+DoubleArrow =  { "<->", "<=>" };
+
+Amount: HashMap<Ident, usize> = {
+    <amnt: SepBy<AmountTerm, AmountTermSep>> => {
+        let mut amount = HashMap::with_capacity(amnt.len());
+        let mut amnt = amnt;
+        for e in amnt.drain(..) {
+            if let Some((s, n)) = e {
+                let a = amount.entry(s).or_insert(0);
+                *a += n;
+            }
+        }
+        amount
+    }
+};
+
+AmountTermSep = { "+", "," };
+
+AmountTerm: Option<(Ident, usize)> = {
+    <n: IntLit> <v: Ident?> => {
+        assert!(n >= 0);
+        if n == 0 {
+            None
+        } else if let Some(s) = v {
+            Some((s, (n as usize)))
+        } else {
+            unreachable!();
+        }
+    },
+    Ident => Some((<>, 1)),
+};
+
+pub InitSection: HashMap<Ident, usize> = {
+    InitSectionKW <s: AssignInt*> => {
+        let mut vals = HashMap::with_capacity(s.len());
+        let mut s = s;
+        for (id, val) in s.drain(..) {
+            vals.insert(id, val as usize);
+        }
+        vals
+    }
+};
+
+InitSectionKW = { "init", "initial" };
+
+pub SpeciesSection: Vec<Ident> = {
+    SpeciesSectionKW <SpeciesList>
+};
+
+SpeciesSectionKW = { "species", "var", "vars" };
+
+SpeciesList: Vec<Ident> = {
+    Species*,
+};
+
+Species: Ident = {
+    <Ident>,
+    <Ident> ":" SpeciesType,
+};
+
+SpeciesType: SpeciesType = {
+    "int" => SpeciesType::HighCount,
+    "bool" => SpeciesType::LowCount,
+};
+
+pub ParameterSection: HashMap<Ident, f64> = {
+    ParameterSectionKW <assgns: AssignFloat*> => {
+        let mut vals = HashMap::with_capacity(assgns.len());
+        let mut assgns = assgns;
+        for (id, val) in assgns.drain(..) {
+            vals.insert(id, val);
+        }
+        vals
+    }
+};
+
+ParameterSectionKW = { "parameters", "constants" };
+
+AssignInt: (Ident, i32) = {
+    <id: Ident> "=" <n: IntLit> => (id, n),
+};
+
+AssignFloat: (Ident, f64) = {
+    <id: Ident> "=" <n: Num> => (id, n),
+};
+
+SepBy<T, V>: Vec<T> = { // (0)
+    <v:(<T> V)*> <e:T?> => match e { // (1)
+        None=> v,
+        Some(e) => {
+            let mut v = v;
+            v.push(e);
+            v
+        }
+    }
+};
+
+Tier<Op,NextTier>: Box<Expr> = {
+    Tier<Op,NextTier> Op NextTier => Box::new(Expr::Op(<>)),
+    NextTier
+};
+
+pub Expr = Tier<ExprOp, Factor>;
+Factor = Tier<FactorOp, Power>;
+Power = Tier<PowerOp, Term>;
+
+ExprOp: Opcode = { // (3)
+    "+" => Opcode::Add,
+    "-" => Opcode::Sub,
+};
+
+FactorOp: Opcode = {
+    "*" => Opcode::Mul,
+    "/" => Opcode::Div,
+};
+
+PowerOp: Opcode = {
+    "^" => Opcode::Pow,
+    "**" => Opcode::Pow,
+};
+
+Term: Box<Expr> = {
+    Num => Box::new(Expr::Number(<>)),
+    <func: Ident> "(" <e: Expr> ")" => Box::new(Expr::FuncApp(func, e)),
+    Ident => Box::new(Expr::Id(<>)),
+    "(" <Expr> ")",
+};
+
+Num: f64 = {
+    FloatLit,
+    IntLit => (<> as f64),
+};
+
+IntLit: i32 = {
+    r"[0-9]+" => i32::from_str(<>).unwrap(),
+};
+
+FloatLit: f64 = {
+    r"[0-9]+\.[0-9]+" => f64::from_str(<>).unwrap(),
+};
+
+Ident: Ident = {
+    r"[a-zA-Z_]+[a-zA-Z0-9_]*" => String::from(<>),
+};
+
