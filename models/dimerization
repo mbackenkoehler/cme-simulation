@@ -1,0 +1,24 @@
+parameters
+    k1 = 1.0
+    k2 = 1.0
+    k3 = 1.0
+    k4 = 1.0
+    k5 = 1.0
+    k6 = 1.0
+
+species X Y B C
+
+reactions
+    X + C -> Y + C @ k1 * X * C;
+    2 X -> B       @ k2 * X * (X - 1);
+    B -> 2 X       @ k3 * B;
+
+    Y + B -> X + B @ k6 * Y * B;
+    2 Y -> C       @ k4 * Y * (Y - 1);
+    C -> 2 Y       @ k5 * C;
+
+init
+    X = 100
+    Y = 100
+    C = 100
+    B = 100

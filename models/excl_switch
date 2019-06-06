@@ -1,0 +1,37 @@
+parameters
+    p1 = 6
+    p2 = 4
+
+    d1 = 0.05
+    d2 = 0.05
+
+    b1 = 0.006
+    b2 = 0.010
+
+    u1 = 0.1
+    u2 = 0.1
+
+species G G1 G2 P1 P2
+
+reactions
+    P1 -> 0 @ mass_action(d1);
+    P2 -> 0 @ mass_action(d2);
+
+    G -> G + P1 @ mass_action(p1);
+    G -> G + P2 @ mass_action(p2);
+
+    G + P1 -> G1 @ mass_action(b1);
+    G + P2 -> G2 @ mass_action(b2);
+
+    G1 -> G + P1 @ mass_action(u1);
+    G2 -> G + P2 @ mass_action(u2);
+
+    G1 -> G1 + P1 @ mass_action(p1);
+    G2 -> G2 + P2 @ mass_action(p2);
+
+init
+    G = 1
+    G1 = 0
+    G2 = 0
+    P1 = 0
+    P2 = 0
