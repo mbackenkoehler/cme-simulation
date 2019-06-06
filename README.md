@@ -5,7 +5,7 @@ of stochastic reaction networks.
 
 ## Dependencies & Compilation
 To compile and run this code one needs to install
-* the rust toolchain
+* the __nightly__ rust toolchain
 * Python 3 and Sympy
 With these dependencies in place `cargo build --release` should suffice to build
 the code.
