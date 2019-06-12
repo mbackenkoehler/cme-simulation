@@ -6,17 +6,16 @@ exclude = ["output/*", "models/*", "temp*", "run.log", "src/model_parser.rs", "*
 build = "build.rs"
 
 [build-dependencies]
-lalrpop = "0.16.0"
+lalrpop = "0.17.0"
 
 [dependencies]
 regex = "1.0.5"
 getopts = "0.2.18"
-lalrpop-util = "0.16.0"
+lalrpop-util = "0.17.0"
 error-chain = "0.12.0"
 log = "0.4.5"
 simplelog = "0.5.2"
 statrs = "0.9.0"
-GSL = "1.0.0"
 rand = "0.6"
 num_cpus = "1.8.0"
 indicatif = "0.9.0"

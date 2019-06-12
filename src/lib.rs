@@ -3,7 +3,6 @@
 extern crate test;
 #[macro_use]
 extern crate error_chain;
-extern crate rgsl;
 extern crate smallvec;
 extern crate statrs;
 #[allow(unused_imports)]
@@ -31,7 +30,6 @@ pub mod errors {
     error_chain! {}
 }
 pub mod covariance_accumulator;
-pub mod distribution;
 pub mod moment_constraints;
 pub mod moment_estimation;
 pub mod progressbar;
