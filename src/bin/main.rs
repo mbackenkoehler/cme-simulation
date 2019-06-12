@@ -224,7 +224,6 @@ fn parse_args() -> Result<(ReactionNetwork, Mode, Matches)> {
         "{linear,cubic}",
     );
     opts.optopt("", "max-order", "maximum moment order (>0) (LCV)", "ORDER");
-    opts.optflag("p", "plots", "draw plots of the results using pyplot");
     opts.optflag("h", "help", "print this help menu");
     if args.len() == 1 {
         print_usage(&program, &opts);
