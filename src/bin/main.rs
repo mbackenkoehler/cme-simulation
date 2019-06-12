@@ -130,10 +130,8 @@ fn read_model(file_name: &str) -> Result<ReactionNetwork> {
                 if expected.len() > 1 { "one of " } else { "" },
                 expected.join(", ")
             );
-            match token {
-                Some((loc, _, _)) => bail!("unexpected token at {}. {}", loc, exp),
-                None => bail!("unexpected token. {}", exp),
-            }
+            let (loc, tok, _) = token;
+            bail!("unexpected token '{}' at {}; {}", tok, loc, exp);
         }
         _ => bail!("parser error"),
     };
