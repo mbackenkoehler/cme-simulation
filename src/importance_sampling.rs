@@ -73,7 +73,7 @@ fn set_gamma<RE: RareEvent>(
         // update biases
         let mut updated_bias = false;
         for (i, r) in model.reactions.iter_mut().enumerate() {
-            let mut enumerator: f64 = best
+            let enumerator: f64 = best
                 .iter()
                 .map(|(_, weight, counts, _)| weight * counts[i] as f64)
                 .sum();

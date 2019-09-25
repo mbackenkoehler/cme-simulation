@@ -266,7 +266,7 @@ impl MomentConstraint {
                         *e.get_mut() -= em.rho;
                         pos.accus[p].usage -= 1;
                     }
-                    Vacant(mut e) => {
+                    Vacant(e) => {
                         e.insert(-em.rho);
                     }
                 };
@@ -292,7 +292,7 @@ impl MomentConstraint {
                         *e.get_mut() += em.rho;
                         pos.accus[p].usage -= 1;
                     }
-                    Vacant(mut e) => {
+                    Vacant(e) => {
                         e.insert(em.rho);
                     }
                 };
@@ -399,14 +399,18 @@ impl MomentConstraints {
     #[inline]
     pub fn count(&mut self, state: &[i32], tlo: f64, thi: f64) {
         self.accus.iter_mut().for_each(|a| {
-            if let Some(v) = a.as_mut() { v.count(state, tlo, thi) }
+            if let Some(v) = a.as_mut() {
+                v.count(state, tlo, thi)
+            }
         });
     }
 
     #[inline]
     pub fn clear_accus(&mut self) {
         self.accus.iter_mut().for_each(|a| {
-            if let Some(v) = a.as_mut() { v.clear() }
+            if let Some(v) = a.as_mut() {
+                v.clear()
+            }
         });
     }
 
@@ -447,7 +451,6 @@ impl MomentConstraints {
                 }
             });
         }
-        use std::option::Option;
         self.accus.retain(Option::is_some);
     }
 }

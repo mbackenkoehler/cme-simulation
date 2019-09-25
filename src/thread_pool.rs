@@ -24,7 +24,7 @@ impl<F: FnOnce() -> Result<()>> FnBox for F {
     }
 }
 
-type Job = Box<FnBox + Send + 'static>;
+type Job = Box<dyn FnBox + Send + 'static>;
 
 impl ThreadPool {
     pub fn new(size: usize) -> Result<ThreadPool> {
@@ -54,7 +54,7 @@ impl ThreadPool {
                 .send(Message::Terminate)
                 .chain_err(|| "unable to send termination message")?;
         }
-        for mut worker in &mut self.workers {
+        for worker in &mut self.workers {
             let worker_thread = &mut worker.thread;
             if let Some(thread) = worker_thread.take() {
                 return match thread.join() {
@@ -96,7 +96,7 @@ impl Worker {
 
         Ok(Worker {
             _id: id,
-            thread: Some(thread)
+            thread: Some(thread),
         })
     }
 }

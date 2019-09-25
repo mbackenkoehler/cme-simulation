@@ -4,6 +4,7 @@ use nalgebra::base::{DMatrix, MatrixN};
 
 use rand;
 use rand::prelude::*;
+use rand_distr::StandardNormal;
 
 use ast::*;
 use covariance_accumulator::CovarianceAccumulator;
@@ -22,7 +23,7 @@ impl Distribution {
         let mut rng = self::rand::thread_rng();
         use self::Distribution::*;
         match *self {
-            Normal => rng.sample(self::rand::distributions::StandardNormal),
+            Normal => rng.sample(StandardNormal),
             Uniform(a, b) => rng.gen::<f64>() * (b - a) + a,
         }
     }
@@ -54,11 +55,7 @@ impl LambdaPrior {
             bail!("Illegal sample size: {}", nlam);
         }
         //let nlam = if with_0 { nlam - 1 } else { nlam };
-        Ok(LambdaPrior {
-            dist,
-            with_0,
-            nlam,
-        })
+        Ok(LambdaPrior { dist, with_0, nlam })
     }
 
     fn sample(&self) -> Vec<f64> {
@@ -96,7 +93,7 @@ pub fn estimate_expectations(
     let pos = model.species.iter().position(|s| s == &vars[0]).unwrap();
     let mut csb = ConstraintBuilder::new(model.clone());
     for _r in 0..reruns {
-        let mut lambdas = prior.sample();
+        let lambdas = prior.sample();
         debug!("lambdas={:?}", lambdas);
         csb.with_exponential_moments(&orders, &lambdas, time)?;
         let mut cs = csb.build();
@@ -136,7 +133,7 @@ pub fn estimate_expectations(
         debug!("correlations: {}", &corrs);
         //let id = rng.gen::<u64>() as f64;
         let c_vec = cov.cov.column(cs.len());
-        let mut c_vec = c_vec.slice((0, 0), (cs.len(), 1));
+        let c_vec = c_vec.slice((0, 0), (cs.len(), 1));
         /*
         use std::iter::{once, empty};
         for (j, c) in cs.constraints.iter().enumerate() {
@@ -150,7 +147,7 @@ pub fn estimate_expectations(
             .chain_err(|| "error writing cvals.csv")?;
         }
         */
-        let mut m = cov.cov.slice((0, 0), (cs.len(), cs.len()));
+        let m = cov.cov.slice((0, 0), (cs.len(), cs.len()));
         let det = m.determinant().abs();
         debug!("det M = {:.4e}", det);
         if det < 1e-15 {
@@ -211,7 +208,13 @@ pub fn estimate_expectations(
 
         info!("{} CVs used.", cs.len());
         debug!("{:?}", cs.constraints);
-        debug!("lambdas={:?}", cs.constraints.iter().map(|c| c.moment.parameter()).collect::<Vec<_>>());
+        debug!(
+            "lambdas={:?}",
+            cs.constraints
+                .iter()
+                .map(|c| c.moment.parameter())
+                .collect::<Vec<_>>()
+        );
 
         info!("Means:");
         for (name, mean) in vars.iter().zip(means_lcv.iter()) {
@@ -314,10 +317,7 @@ fn compute_pmin(corr: &DMatrix<f64>, n_constraints: usize, pmin_frac: f64) -> f6
         .max(0.1)
 }
 
-fn write_csv_line(
-    filename: &str,
-    values: impl Iterator<Item = String>,
-) -> ::std::io::Result<()> {
+fn write_csv_line(filename: &str, values: impl Iterator<Item = String>) -> ::std::io::Result<()> {
     use std::fs::OpenOptions;
     use std::io::prelude::*;
     let mut file = OpenOptions::new()

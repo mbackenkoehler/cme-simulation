@@ -19,6 +19,7 @@ extern crate itertools;
 extern crate lalrpop_util;
 extern crate pyo3;
 extern crate rand;
+extern crate rand_distr;
 
 pub mod ast;
 pub mod importance_sampling;

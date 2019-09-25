@@ -49,7 +49,7 @@ fn init_logger(log_file: &str) {
         .unwrap_or(LevelFilter::Info);
     let file_log_level = var("CME_LOG").map(str2level).unwrap_or(LevelFilter::Debug);
     CombinedLogger::init(vec![
-        TermLogger::new(term_log_level, Config::default())
+        TermLogger::new(term_log_level, Config::default(), TerminalMode::Mixed)
             .expect("Initializing term logger failed"),
         WriteLogger::new(
             file_log_level,
