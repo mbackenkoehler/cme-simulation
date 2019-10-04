@@ -70,7 +70,7 @@ mod tests {
     fn std_normal() {
         let n = 100_000;
         let v = (0..n)
-            .map(|_| SmallRng::from_entropy().sample(StandardNormal))
+            .map(|_| thread_rng().sample(StandardNormal))
             .collect::<Vec<f64>>();
         let mut acc = CovarianceAccumulator::new(1);
         for val in &v {
@@ -88,10 +88,10 @@ mod tests {
     fn std_normal_uncorr() {
         let n = 100_000;
         let v1 = (0..n)
-            .map(|_| SmallRng::from_entropy().sample(StandardNormal))
+            .map(|_| thread_rng().sample(StandardNormal))
             .collect::<Vec<f64>>();
         let v2 = (0..n)
-            .map(|_| SmallRng::from_entropy().sample(StandardNormal))
+            .map(|_| thread_rng().sample(StandardNormal))
             .collect::<Vec<f64>>();
         let mut acc = CovarianceAccumulator::new(2);
         for (val1, val2) in v1.iter().zip(v2.iter()) {
@@ -116,7 +116,7 @@ mod tests {
         let mu = 10.0;
         let n = 100_000;
         let v = (0..n)
-            .map(|_| SmallRng::from_entropy().sample(StandardNormal) + mu)
+            .map(|_| thread_rng().sample(StandardNormal) + mu)
             .collect::<Vec<f64>>();
         let mut acc = CovarianceAccumulator::new(1);
         for val in &v {
@@ -135,10 +135,10 @@ mod tests {
         let mu = 10.0;
         let n = 100_000;
         let v1 = (0..n)
-            .map(|_| SmallRng::from_entropy().sample(StandardNormal) + mu)
+            .map(|_| thread_rng().sample(StandardNormal) + mu)
             .collect::<Vec<f64>>();
         let v2 = (0..n)
-            .map(|_| SmallRng::from_entropy().sample(StandardNormal) + mu)
+            .map(|_| thread_rng().sample(StandardNormal) + mu)
             .collect::<Vec<f64>>();
         let mut acc = CovarianceAccumulator::new(2);
         for (val1, val2) in v1.iter().zip(v2.iter()) {
