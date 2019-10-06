@@ -26,7 +26,6 @@ pub mod importance_sampling;
 pub mod model_parser;
 pub mod simulation;
 pub mod simulation_logger;
-pub mod thread_pool;
 pub mod errors {
     error_chain! {}
 }
