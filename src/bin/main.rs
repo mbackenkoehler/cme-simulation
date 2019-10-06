@@ -22,7 +22,7 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use cme::ast::ReactionNetwork;
+use cme::model::ReactionNetwork;
 use cme::errors::*;
 use cme::importance_sampling::*;
 use cme::model_parser::ReactionNetworkParser;

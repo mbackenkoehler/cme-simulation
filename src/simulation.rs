@@ -1,6 +1,6 @@
 extern crate rand;
 
-use ast::{ReactionNetwork, Stack};
+use model::{ReactionNetwork, Stack};
 use errors::*;
 
 #[derive(Clone)]

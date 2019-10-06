@@ -3,7 +3,7 @@ extern crate rand;
 
 use self::rand::Rng;
 
-use ast::*;
+use model::*;
 use errors::*;
 use progressbar::Progress;
 use rare_event::{RareEvent, TimeInterval};

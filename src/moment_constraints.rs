@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
-use ast::*;
+use model::*;
 use errors::*;
 use model_parser;
 use utils::Omega;
@@ -23,7 +23,7 @@ impl Moment {
         if names.len() != self.m.len() {
             bail!("illegal moment vector ({:?})", self.m);
         }
-        use ast::Expr::*;
+        use model::Expr::*;
         let mut monomial = Number(1.0);
         for (i, (exp, name)) in self.m.iter().zip(names).enumerate() {
             let mut var = Box::new(Id(name.to_string()));
@@ -579,7 +579,7 @@ fn extract_coeffs(
     coeffs: &mut HashMap<Moment, f64>,
     negative: bool,
 ) -> Result<()> {
-    use ast::Expr::*;
+    use model::Expr::*;
     match expr {
         Op(l, Opcode::Sub, r) => {
             extract_coeffs(&*l, model, coeffs, negative)?;
@@ -607,7 +607,7 @@ fn extract_coeff_mom(expr: &Expr, model: &ReactionNetwork) -> Result<(Moment, f6
 }
 
 fn extract_coeffs_term(expr: &Expr, pows: &mut HashMap<Ident, u32>, coeff: &mut f64) -> Result<()> {
-    use ast::Expr::*;
+    use model::Expr::*;
     match expr {
         Op(l, Opcode::Mul, r) => {
             extract_coeffs_term(l, pows, coeff)?;
@@ -626,7 +626,7 @@ fn extract_coeffs_term(expr: &Expr, pows: &mut HashMap<Ident, u32>, coeff: &mut 
 }
 
 fn moment_deriv(model: &ReactionNetwork, moment: &Moment) -> Result<Expr> {
-    use ast::Expr::*;
+    use model::Expr::*;
     let mut deriv = Number(0.0);
     for reaction in &model.reactions {
         let prop = reaction.propensity.clone();

@@ -21,7 +21,7 @@ extern crate pyo3;
 extern crate rand;
 extern crate rand_distr;
 
-pub mod ast;
+pub mod model;
 pub mod importance_sampling;
 pub mod model_parser;
 pub mod simulation;
