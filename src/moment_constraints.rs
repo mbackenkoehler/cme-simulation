@@ -431,6 +431,16 @@ impl MomentConstraints {
         self.constraints.remove(idx);
     }
 
+    /// `idcs` is strictly ordered (asc)
+    pub fn remove_all(&mut self, idcs: &[usize]) {
+        for &idx in idcs.iter().rev() {
+            self.remove(idx);
+        }
+        if !idcs.is_empty() {
+            self.defrag_accus();
+        }
+    }
+
     pub fn defrag_accus(&mut self) {
         for (new_i, (ix, _u)) in self
             .accus

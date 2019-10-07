@@ -34,21 +34,33 @@ impl CovarianceAccumulator {
         self.cov.component_div(&sdev)
     }
 
-    pub fn remove(self, index: usize) -> Self {
+    pub fn remove(&mut self, index: usize) {
         debug_assert!(
             index < self.mean.len(),
             "illegal removal index '{}' with dim={}",
             index,
             self.dim()
         );
-        let cov = self.cov.remove_column(index);
-        let cov = cov.remove_row(index);
-        let mean = self.mean.remove_row(index);
-        CovarianceAccumulator {
-            cov,
-            mean,
-            n: self.n,
+        // TODO: check if this code can be optimized
+        let cov = self.cov.clone().remove_column(index);
+        self.cov = cov.remove_row(index);
+        self.mean = self.mean.clone().remove_row(index);
+    }
+
+    /// `to_rm` is strictly ordered (asc)
+    pub fn remove_all(&mut self, to_rm: &[usize]) {
+        if to_rm.is_empty() {
+            return;
         }
+        let mut cov = self.cov.clone();
+        let mut mean = self.mean.clone();
+        for &idx in to_rm.iter().rev() {
+            cov = cov.remove_row(idx);
+            cov = cov.remove_column(idx);
+            mean = mean.remove_row(idx);
+        }
+        self.cov = cov;
+        self.mean = mean;
     }
 
     pub fn dim(&self) -> usize {
