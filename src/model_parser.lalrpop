@@ -3,7 +3,7 @@
 use lalrpop_util::ErrorRecovery;
 use std::collections::HashMap;
 use std::str::FromStr;
-use ast::{Expr, Opcode, Ident, SpeciesType, Reaction, ReactionNetwork};
+use model::{Expr, Opcode, Ident, SpeciesType, Reaction, ReactionNetwork};
 
 grammar<'err>(errors: &'err mut Vec<ErrorRecovery<usize, (usize, &'input str), ()>>);
 

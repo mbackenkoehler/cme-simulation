@@ -6,7 +6,7 @@ use rand;
 use rand::prelude::*;
 use rand_distr::StandardNormal;
 
-use ast::*;
+use model::*;
 use covariance_accumulator::CovarianceAccumulator;
 use errors::*;
 use moment_constraints::*;

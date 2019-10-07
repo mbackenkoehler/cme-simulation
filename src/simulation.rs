@@ -1,8 +1,6 @@
 extern crate rand;
 
-use std::sync::Arc;
-
-use ast::{ReactionNetwork, Stack};
+use model::{ReactionNetwork, Stack};
 use errors::*;
 
 #[derive(Clone)]
@@ -32,10 +30,9 @@ pub trait SimulationLogger {
 pub fn simulation<L: SimulationLogger>(
     id: usize,
     settings: &Settings<L>,
-    spec: &Arc<ReactionNetwork>,
+    spec: &ReactionNetwork,
 ) -> Result<()> {
     use simulation::rand::Rng;
-    let spec = &*spec;
     let mut stack = Stack::default();
     //use self::rand::SeedableRng;
     //let mut rng = self::rand::rngs::StdRng::seed_from_u64(0);// self::rand::thread_rng();

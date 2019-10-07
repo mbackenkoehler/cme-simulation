@@ -1,3 +1,4 @@
+#![feature(no_more_cas)]
 #![allow(dead_code, unused_variables, unknown_lints)]
 extern crate cme;
 #[macro_use]
@@ -18,9 +19,10 @@ use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use cme::ast::ReactionNetwork;
+use cme::model::ReactionNetwork;
 use cme::errors::*;
 use cme::importance_sampling::*;
 use cme::model_parser::ReactionNetworkParser;
@@ -29,7 +31,6 @@ use cme::moment_estimation::estimate_expectations;
 use cme::rare_event::*;
 use cme::simulation;
 use cme::simulation_logger::CsvSimulationLogger;
-use cme::thread_pool::ThreadPool;
 
 #[allow(clippy::needless_pass_by_value)]
 fn str2level(inp: String) -> LevelFilter {
@@ -287,16 +288,34 @@ fn run_mode_simulation(model: ReactionNetwork, matches: &Matches) -> Result<()> 
     if j < 1 {
         bail!("illegal number of jobs ({})", j);
     }
-    let mut pool = ThreadPool::new(j).chain_err(|| "could not initialize thread pool")?;
-    let model = Arc::new(model);
-    for id in 0..r {
+    let mut handles = vec![];
+    let simulations_done = Arc::new(AtomicUsize::new(0));
+    for worker in 0..j {
         let settings_ = settings.clone();
-        let model_ = Arc::clone(&model);
-        pool.execute(move || simulation::simulation(id, &settings_, &model_))?;
+        let model_ = model.clone();
+        let counter = simulations_done.clone();
+        let handle = std::thread::spawn(move || {
+            while counter
+                .fetch_update(
+                    |c| if c < r { Some(c + 1) } else { None },
+                    Ordering::SeqCst,
+                    Ordering::SeqCst,
+                )
+                .is_ok()
+            {
+                simulation::simulation(0, &settings_, &model_)?;
+            }
+            Ok(())
+        });
+        handles.push(handle);
     }
-    pool.terminate()
-        .chain_err(|| "could not terminate thread pool")?;
-    drop(settings);
+    for handle in handles {
+        let res: Result<()> = handle.join().unwrap();
+    }
+    info!(
+        "{} simulations done",
+        simulations_done.load(Ordering::Relaxed)
+    );
     if let Some(out_file) = matches.opt_str("o") {
         info!("-> Results have been written to {}.", out_file);
     }
