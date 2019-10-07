@@ -6,9 +6,9 @@ use rand;
 use rand::prelude::*;
 use rand_distr::StandardNormal;
 
-use model::*;
 use covariance_accumulator::CovarianceAccumulator;
 use errors::*;
+use model::*;
 use moment_constraints::*;
 use progressbar::Progress;
 

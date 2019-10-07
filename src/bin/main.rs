@@ -22,9 +22,9 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use cme::model::ReactionNetwork;
 use cme::errors::*;
 use cme::importance_sampling::*;
+use cme::model::ReactionNetwork;
 use cme::model_parser::ReactionNetworkParser;
 use cme::moment_estimation;
 use cme::moment_estimation::estimate_expectations;
@@ -160,6 +160,7 @@ fn parse_args() -> Result<(ReactionNetwork, Mode, Matches)> {
     opts.optopt("w", "warmup", "warmup before logging is started", "T");
     opts.optopt("r", "reruns", "number of reruns (>= 1)", "N");
     opts.optflagopt("j", "jobs", "number of jobs (>= 1) to use in parallel", "N");
+    opts.optflag("", "no-progressbar", "do not show a progress bar");
     opts.optflag("", "notime", "do not write a time column");
     opts.optflag("", "write-id", "write a unique id for each rerun");
     opts.optmulti(
@@ -276,7 +277,15 @@ fn run_mode_simulation(model: ReactionNetwork, matches: &Matches) -> Result<()> 
     let write_time = !matches.opt_present("notime");
     let write_id = matches.opt_present("write-id");
     let o_file = matches.opt_str("o");
-    let logger = CsvSimulationLogger::new(&model.species, o_file, write_time, write_id, r as u64)?;
+    let progressbar = !matches.opt_present("no-progressbar");
+    let logger = CsvSimulationLogger::new(
+        &model.species,
+        o_file,
+        write_time,
+        write_id,
+        progressbar,
+        r as u64,
+    )?;
     let settings = simulation::Settings::new(tmax, warmup, granularity, logger);
     let j = if matches.opt_present("j") {
         matches.opt_str("j").map_or_else(num_cpus::get, |s| {
@@ -295,6 +304,7 @@ fn run_mode_simulation(model: ReactionNetwork, matches: &Matches) -> Result<()> 
         let model_ = model.clone();
         let counter = simulations_done.clone();
         let handle = std::thread::spawn(move || {
+            info!("spawn worker {}", worker);
             while counter
                 .fetch_update(
                     |c| if c < r { Some(c + 1) } else { None },
@@ -305,12 +315,17 @@ fn run_mode_simulation(model: ReactionNetwork, matches: &Matches) -> Result<()> 
             {
                 simulation::simulation(0, &settings_, &model_)?;
             }
+            info!("worker {} finished", worker);
             Ok(())
         });
         handles.push(handle);
     }
-    for handle in handles {
+    for (worker, handle) in handles.drain(..).enumerate() {
+        info!("join worker {}", worker);
         let res: Result<()> = handle.join().unwrap();
+        if let Err(e) = res {
+            warn!("thread {} error: '{}'", worker, e.description());
+        }
     }
     info!(
         "{} simulations done",

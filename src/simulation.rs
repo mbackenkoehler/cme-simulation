@@ -1,7 +1,7 @@
 extern crate rand;
 
-use model::{ReactionNetwork, Stack};
 use errors::*;
+use model::{ReactionNetwork, Stack};
 
 #[derive(Clone)]
 pub struct Settings<L: SimulationLogger> {

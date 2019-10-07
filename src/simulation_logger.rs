@@ -22,10 +22,11 @@ impl CsvSimulationLogger {
         file: Option<String>,
         write_time: bool,
         write_id: bool,
+        progressbar: bool,
         total_calls: u64,
     ) -> Result<CsvSimulationLogger> {
         let pb = Progress::new(total_calls)?;
-        let progress = if file.is_some() {
+        let progress = if progressbar && file.is_some() {
             Some(Arc::new(Mutex::new(pb)))
         } else {
             None
@@ -101,7 +102,7 @@ impl SimulationLogger for CsvSimulationLogger {
 
     fn job_done(&self, _id: usize, _state: &[i32]) -> Result<()> {
         if let Some(ref progress_cell) = self.progress {
-            match progress_cell.try_lock() {
+            match progress_cell.lock() {
                 Ok(ref mut pb) => {
                     pb.tick();
                 }

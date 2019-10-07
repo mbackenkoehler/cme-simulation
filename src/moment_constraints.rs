@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
-use model::*;
 use errors::*;
+use model::*;
 use model_parser;
 use utils::Omega;
 
