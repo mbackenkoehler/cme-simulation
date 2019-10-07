@@ -224,15 +224,16 @@ impl ConstraintFilter for RegressionHeuristic {
         let c_vec = c_vec.slice((0, 0), (num_cv, 1));
         let var_i = cov.cov[(num_cv, num_cv)];
         // filter lowest deltas according to linear cost decrease
-        let to_rm = c_vec
+        let mut to_rm = c_vec
             .iter()
             .zip(beta.iter())
             .map(|(c, b)| c * b / var_i)
             .zip(cs.constraints.iter())
-            .map(|(var_red, c)| cs.accus_for(c) * cost_slope)
+            .map(|(var_red, c)| (cs.accus_for(c) as f64) * self.cost_slope)
             .enumerate()
-            .filter(|delta| delta < 1)
-            .map(|(i, _)| i);
+            .filter(|&(_, delta)| delta < 1.0)
+            .map(|(i, _)| i)
+            .collect::<Vec<_>>();
         remove_constraints(&mut to_rm, cs, cov);
 
         Ok(())
