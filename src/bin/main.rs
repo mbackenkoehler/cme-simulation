@@ -22,9 +22,9 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use cme::model::ReactionNetwork;
 use cme::errors::*;
 use cme::importance_sampling::*;
+use cme::model::ReactionNetwork;
 use cme::model_parser::ReactionNetworkParser;
 use cme::moment_estimation;
 use cme::moment_estimation::estimate_expectations;
@@ -420,7 +420,7 @@ fn run_mode_means(model: &mut ReactionNetwork, matches: &Matches) -> Result<()> 
         model,
         tmax,
         n,
-        100,
+        50,
         vars.clone(),
         !lcv,
         max_order,

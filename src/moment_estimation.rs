@@ -6,9 +6,9 @@ use rand;
 use rand::prelude::*;
 use rand_distr::StandardNormal;
 
-use model::*;
 use covariance_accumulator::CovarianceAccumulator;
 use errors::*;
+use model::*;
 use moment_constraints::*;
 use progressbar::Progress;
 
@@ -51,14 +51,14 @@ impl LambdaPrior {
                 bail!("Illegal uniform distribution on interval [{},{}]", a, b);
             }
         }
-        if nlam < 1 {
-            bail!("Illegal sample size: {}", nlam);
-        }
-        //let nlam = if with_0 { nlam - 1 } else { nlam };
+
         Ok(LambdaPrior { dist, with_0, nlam })
     }
 
     fn sample(&self) -> Vec<f64> {
+        if self.nlam == 0 {
+            return vec![];
+        }
         ::std::iter::once(if self.with_0 { 0.0 } else { self.dist.sample() })
             .chain((1..self.nlam).map(|_| self.dist.sample()))
             .collect::<Vec<_>>()
@@ -126,75 +126,26 @@ pub fn estimate_expectations(
         cov = filter_constraints(&mut cs, cov, n, pmin_frac, red_rule);
         debug!("constraint mean:\n{}", cov.mean);
         debug!("constraint variance:\n{}", cov.cov);
-        let mut means = Vec::with_capacity(model.species.len());
-        let mut means_lcv = Vec::with_capacity(model.species.len());
-        let mut r2s = Vec::with_capacity(model.species.len());
-        let corrs = cov.correlation();
-        debug!("correlations: {}", &corrs);
-        //let id = rng.gen::<u64>() as f64;
-        let c_vec = cov.cov.column(cs.len());
-        let c_vec = c_vec.slice((0, 0), (cs.len(), 1));
-        /*
-        use std::iter::{once, empty};
-        for (j, c) in cs.constraints.iter().enumerate() {
-            write_csv_line(
-                "cvals.csv",
-                empty()
-                    .chain(c.moment.moment().as_vec().iter().map(|x| format!("{}", x)))
-                    .chain(once(format!("{}", c.moment.parameter())))
-                    .chain(once(format!("{}", corrs[(cs.len(), j)]))),
-            )
-            .chain_err(|| "error writing cvals.csv")?;
-        }
-        */
-        let m = cov.cov.slice((0, 0), (cs.len(), cs.len()));
-        let det = m.determinant().abs();
-        debug!("det M = {:.4e}", det);
-        if det < 1e-15 {
-            warn!("Covariance matrix almost singular! det={:.4e}", det);
-        }
+
         let idx = cs.len();
         let mean = cov.mean[idx];
-
-        let m_inv = if det > 1e10 {
-            debug!("scaling before inversion");
-            let svec = m.diagonal().map(|x| 1.0 / x.sqrt());
-            let s_inv = MatrixN::from_diagonal(&svec);
-            let s_inv = s_inv.slice((0, 0), (cs.len(), cs.len()));
-            let sm_inv = corrs
-                .slice((0, 0), (cs.len(), cs.len()))
-                .try_inverse()
-                .chain_err(|| "inversion failed")?;
-            s_inv * sm_inv * s_inv
-        } else {
-            m.try_inverse().chain_err(|| "inversion failed")?
-        };
-        debug!("inv M = {}", &m_inv);
-        let beta = &m_inv * c_vec;
-        let delta = beta.transpose() * cov.mean.slice((0, 0), (cs.len(), 1));
-        means.push(mean);
-        means_lcv.push(mean - delta[0]);
-        let r2 = (&c_vec.transpose() * &m_inv * c_vec / cov.cov[(idx, idx)])[0];
-        info!(
-            "Variance reduction: {:.4e}",
-            if !cs.is_empty() { r2 } else { 0.0 }
-        );
-        r2s.push(r2);
-        debug!("means:{:?}", means);
-        debug!("lcv_means:{:?}", means_lcv);
+        let beta = linreg(&cov, idx)?;
+        let delta = beta.transpose() * cov.mean.slice((0, 0), (idx, 1));
+        let mean_lcv = mean - delta[0];
+        debug!("mean: {:?}", mean);
+        debug!("lcv_mean: {:?}", mean_lcv);
 
         // I won this round you stupid borrow checker....
         let model_name = model.name.as_ref().unwrap_or(&"none".to_string()).clone();
+        #[allow(clippy::useless_format)]
         let mut vals = vec![
             model_name,
             format!("{}", duration),
-            format!("{}", means[0]),
-            format!("{}", means_lcv[0]),
+            format!("{}", mean),
+            format!("{}", mean_lcv),
             format!("{}", no_conds),
             format!("{}", prior.nlam()),
             format!("{}", pmin_frac),
-            format!("{:.4e}", r2s[0]),
-            format!("{:.4e}", det),
             format!("{}", n),
             format!("{}", prior.dist.csv_id()),
             format!("{:?}", prior.with_0),
@@ -217,12 +168,47 @@ pub fn estimate_expectations(
         );
 
         info!("Means:");
-        for (name, mean) in vars.iter().zip(means_lcv.iter()) {
-            info!("  {}: {}", name, mean);
+        for name in &vars {
+            info!("  {}: {}", name, mean_lcv);
         }
     }
 
     Ok(())
+}
+
+/// Perform a linear regression using indices [0, num_cv - 1] to fit the variable at num_cv.
+fn linreg(cov: &CovarianceAccumulator, num_cv: usize) -> Result<DMatrix<f64>> {
+    let corrs = cov.correlation();
+    debug!("correlations: {}", &corrs);
+    let c_vec = cov.cov.column(num_cv);
+    let c_vec = c_vec.slice((0, 0), (num_cv, 1));
+    let m = cov.cov.slice((0, 0), (num_cv, num_cv));
+    let det = m.determinant().abs();
+    debug!("det M = {:.4e}", det);
+    if det < 1e-15 {
+        warn!("Covariance matrix almost singular! det={:.4e}", det);
+    }
+    let m_inv = if det > 1e10 {
+        debug!("scaling before inversion");
+        let svec = m.diagonal().map(|x| 1.0 / x.sqrt());
+        let s_inv = MatrixN::from_diagonal(&svec);
+        let s_inv = s_inv.slice((0, 0), (num_cv, num_cv));
+        let sm_inv = corrs
+            .slice((0, 0), (num_cv, num_cv))
+            .try_inverse()
+            .chain_err(|| "inversion failed")?;
+        s_inv * sm_inv * s_inv
+    } else {
+        m.try_inverse().chain_err(|| "inversion failed")?
+    };
+    debug!("inv M = {}", &m_inv);
+    let r2 = (&c_vec.transpose() * &m_inv * c_vec / cov.cov[(num_cv, num_cv)])[0];
+    info!(
+        "Variance reduction: {:.4e}",
+        if num_cv > 0 { r2 } else { 0.0 }
+    );
+
+    Ok(&m_inv * c_vec)
 }
 
 #[derive(Debug)]
@@ -400,6 +386,7 @@ fn simulation<R: Rng>(
             break;
         }
     }
+
     Ok(())
 }
 
