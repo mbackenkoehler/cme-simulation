@@ -95,7 +95,11 @@ impl InitialConstraints {
 }
 
 pub trait ConstraintFilter {
-    fn filter_constraints(&self, cs: &mut MomentConstraints, cov: &mut CovarianceAccumulator);
+    fn filter_constraints(
+        &self,
+        cs: &mut MomentConstraints,
+        cov: &mut CovarianceAccumulator,
+    ) -> Result<()>;
 }
 
 pub fn estimate_expectations(
@@ -149,14 +153,6 @@ pub fn estimate_expectations(
         debug!("mean: {:?}", mean);
         debug!("lcv_mean: {:?}", mean_lcv);
         info!("{} CVs used.", cs.len());
-        debug!("{:?}", cs.constraints);
-        debug!(
-            "lambdas={:?}",
-            cs.constraints
-                .iter()
-                .map(|c| c.moment.parameter())
-                .collect::<Vec<_>>()
-        );
 
         info!("Means:");
         for name in &vars {
@@ -192,14 +188,55 @@ fn linreg(cov: &CovarianceAccumulator, num_cv: usize) -> Result<DMatrix<f64>> {
     } else {
         m.try_inverse().chain_err(|| "inversion failed")?
     };
-    debug!("inv M = {}", &m_inv);
-    let r2 = (&c_vec.transpose() * &m_inv * c_vec / cov.cov[(num_cv, num_cv)])[0];
+    let beta = &c_vec.transpose() * &m_inv;
+    let r2 = (beta.transpose() * c_vec / cov.cov[(num_cv, num_cv)])[0];
     info!(
         "Variance reduction: {:.4e}",
         if num_cv > 0 { r2 } else { 0.0 }
     );
 
-    Ok(&m_inv * c_vec)
+    Ok(beta)
+}
+
+pub struct RegressionHeuristic {
+    /// This serves as the slope of the assumed linear increase
+    /// in cost with additional accumulators.
+    cost_slope: f64,
+}
+
+impl RegressionHeuristic {
+    pub fn new(cost_slope: f64) -> RegressionHeuristic {
+        RegressionHeuristic { cost_slope }
+    }
+}
+
+impl ConstraintFilter for RegressionHeuristic {
+    fn filter_constraints(
+        &self,
+        cs: &mut MomentConstraints,
+        cov: &mut CovarianceAccumulator,
+    ) -> Result<()> {
+        // TODO: maybe we have to filter redundant covariates before
+        // for numerical feasibility of `linreg`.
+        let num_cv = cs.len();
+        let beta = linreg(&cov, num_cv)?;
+        let c_vec = cov.cov.column(num_cv);
+        let c_vec = c_vec.slice((0, 0), (num_cv, 1));
+        let var_i = cov.cov[(num_cv, num_cv)];
+        // filter lowest deltas according to linear cost decrease
+        let to_rm = c_vec
+            .iter()
+            .zip(beta.iter())
+            .map(|(c, b)| c * b / var_i)
+            .zip(cs.constraints.iter())
+            .map(|(var_red, c)| cs.accus_for(c) * cost_slope)
+            .enumerate()
+            .filter(|delta| delta < 1)
+            .map(|(i, _)| i);
+        remove_constraints(&mut to_rm, cs, cov);
+
+        Ok(())
+    }
 }
 
 pub struct CorrelationHeuristic {
@@ -217,7 +254,11 @@ impl CorrelationHeuristic {
 }
 
 impl ConstraintFilter for CorrelationHeuristic {
-    fn filter_constraints(&self, cs: &mut MomentConstraints, cov: &mut CovarianceAccumulator) {
+    fn filter_constraints(
+        &self,
+        cs: &mut MomentConstraints,
+        cov: &mut CovarianceAccumulator,
+    ) -> Result<()> {
         // iterate over constraints
         let corr = cov.correlation();
         let mut to_rm = vec![];
@@ -250,6 +291,8 @@ impl ConstraintFilter for CorrelationHeuristic {
             }
         }
         remove_constraints(&mut to_rm, cs, cov);
+
+        Ok(())
     }
 }
 

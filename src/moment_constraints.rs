@@ -463,6 +463,13 @@ impl MomentConstraints {
         }
         self.accus.retain(Option::is_some);
     }
+
+    pub fn accus_for(&self, c: &MomentConstraint) -> usize {
+        c.tm_coeffs
+            .keys()
+            .map(|k| self.accus[*k].as_ref().unwrap().usage == 1)
+            .count()
+    }
 }
 
 pub struct ConstraintBuilder {
