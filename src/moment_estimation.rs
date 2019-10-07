@@ -51,14 +51,14 @@ impl LambdaPrior {
                 bail!("Illegal uniform distribution on interval [{},{}]", a, b);
             }
         }
-        if nlam < 1 {
-            bail!("Illegal sample size: {}", nlam);
-        }
-        //let nlam = if with_0 { nlam - 1 } else { nlam };
+
         Ok(LambdaPrior { dist, with_0, nlam })
     }
 
     fn sample(&self) -> Vec<f64> {
+        if self.nlam == 0 {
+            return vec![];
+        }
         ::std::iter::once(if self.with_0 { 0.0 } else { self.dist.sample() })
             .chain((1..self.nlam).map(|_| self.dist.sample()))
             .collect::<Vec<_>>()
@@ -69,34 +69,48 @@ impl LambdaPrior {
     }
 }
 
+pub struct InitialConstraints {
+    pub prior: LambdaPrior,
+    orders: Vec<u32>,
+    csb: ConstraintBuilder,
+}
+
+impl InitialConstraints {
+    pub fn new(model: &ReactionNetwork, prior: LambdaPrior, max_order: u32) -> InitialConstraints {
+        let csb = ConstraintBuilder::new(model.clone());
+        let orders = (1..=max_order).collect::<Vec<_>>();
+        InitialConstraints { prior, orders, csb }
+    }
+
+    pub fn generate(&mut self, time: f64) -> Result<MomentConstraints> {
+        let lambdas = self.prior.sample();
+        self.csb
+            .with_exponential_moments(&self.orders, &lambdas, time)?;
+        Ok(self.csb.build())
+    }
+
+    pub fn max_order(&self) -> u32 {
+        *self.orders.iter().max().unwrap_or(&0)
+    }
+}
+
+pub trait ConstraintFilter {
+    fn filter_constraints(&self, cs: &mut MomentConstraints, cov: &mut CovarianceAccumulator);
+}
+
 pub fn estimate_expectations(
     model: &ReactionNetwork,
     time: f64,
-    n: usize,
-    d: usize,
+    (n, d, reruns): (usize, usize, usize),
     vars: Vec<String>,
-    no_conds: bool,
-    max_order: u32,
-    pmin_frac: f64,
-    prior: &LambdaPrior,
-    red_rule: &RedundancyRule,
-    reruns: usize,
+    initial_constraints: &mut InitialConstraints,
+    filter: &mut impl ConstraintFilter,
 ) -> Result<()> {
     info!("{:?}", model.species);
     let mut rng = self::rand::thread_rng();
-    let orders = if no_conds {
-        vec![]
-    } else {
-        (1..=max_order).collect::<Vec<_>>()
-    };
-    debug!("orders={:?}", orders);
     let pos = model.species.iter().position(|s| s == &vars[0]).unwrap();
-    let mut csb = ConstraintBuilder::new(model.clone());
     for _r in 0..reruns {
-        let lambdas = prior.sample();
-        debug!("lambdas={:?}", lambdas);
-        csb.with_exponential_moments(&orders, &lambdas, time)?;
-        let mut cs = csb.build();
+        let mut cs = initial_constraints.generate(time)?;
         info!("{} LCV constraints", cs.len());
         debug!("{} accumulators", cs.accu_len());
         let mut cov = CovarianceAccumulator::new(cs.len() + 1);
@@ -115,7 +129,7 @@ pub fn estimate_expectations(
             cs.clear_accus();
 
             if iteration > 0 && iteration % d == 0 && !cs.is_empty() {
-                cov = filter_constraints(&mut cs, cov, iteration, pmin_frac, red_rule);
+                filter.filter_constraints(&mut cs, &mut cov);
             }
 
             pb.tick();
@@ -123,89 +137,17 @@ pub fn estimate_expectations(
         let duration = start_time.elapsed().as_nanos();
 
         ::std::mem::drop(pb);
-        cov = filter_constraints(&mut cs, cov, n, pmin_frac, red_rule);
+        filter.filter_constraints(&mut cs, &mut cov);
         debug!("constraint mean:\n{}", cov.mean);
         debug!("constraint variance:\n{}", cov.cov);
-        let mut means = Vec::with_capacity(model.species.len());
-        let mut means_lcv = Vec::with_capacity(model.species.len());
-        let mut r2s = Vec::with_capacity(model.species.len());
-        let corrs = cov.correlation();
-        debug!("correlations: {}", &corrs);
-        //let id = rng.gen::<u64>() as f64;
-        let c_vec = cov.cov.column(cs.len());
-        let c_vec = c_vec.slice((0, 0), (cs.len(), 1));
-        /*
-        use std::iter::{once, empty};
-        for (j, c) in cs.constraints.iter().enumerate() {
-            write_csv_line(
-                "cvals.csv",
-                empty()
-                    .chain(c.moment.moment().as_vec().iter().map(|x| format!("{}", x)))
-                    .chain(once(format!("{}", c.moment.parameter())))
-                    .chain(once(format!("{}", corrs[(cs.len(), j)]))),
-            )
-            .chain_err(|| "error writing cvals.csv")?;
-        }
-        */
-        let m = cov.cov.slice((0, 0), (cs.len(), cs.len()));
-        let det = m.determinant().abs();
-        debug!("det M = {:.4e}", det);
-        if det < 1e-15 {
-            warn!("Covariance matrix almost singular! det={:.4e}", det);
-        }
+
         let idx = cs.len();
         let mean = cov.mean[idx];
-
-        let m_inv = if det > 1e10 {
-            debug!("scaling before inversion");
-            let svec = m.diagonal().map(|x| 1.0 / x.sqrt());
-            let s_inv = MatrixN::from_diagonal(&svec);
-            let s_inv = s_inv.slice((0, 0), (cs.len(), cs.len()));
-            let sm_inv = corrs
-                .slice((0, 0), (cs.len(), cs.len()))
-                .try_inverse()
-                .chain_err(|| "inversion failed")?;
-            s_inv * sm_inv * s_inv
-        } else {
-            m.try_inverse().chain_err(|| "inversion failed")?
-        };
-        debug!("inv M = {}", &m_inv);
-        let beta = &m_inv * c_vec;
-        let delta = beta.transpose() * cov.mean.slice((0, 0), (cs.len(), 1));
-        means.push(mean);
-        means_lcv.push(mean - delta[0]);
-        let r2 = (&c_vec.transpose() * &m_inv * c_vec / cov.cov[(idx, idx)])[0];
-        info!(
-            "Variance reduction: {:.4e}",
-            if !cs.is_empty() { r2 } else { 0.0 }
-        );
-        r2s.push(r2);
-        debug!("means:{:?}", means);
-        debug!("lcv_means:{:?}", means_lcv);
-
-        // I won this round you stupid borrow checker....
-        let model_name = model.name.as_ref().unwrap_or(&"none".to_string()).clone();
-        let mut vals = vec![
-            model_name,
-            format!("{}", duration),
-            format!("{}", means[0]),
-            format!("{}", means_lcv[0]),
-            format!("{}", no_conds),
-            format!("{}", prior.nlam()),
-            format!("{}", pmin_frac),
-            format!("{:.4e}", r2s[0]),
-            format!("{:.4e}", det),
-            format!("{}", n),
-            format!("{}", prior.dist.csv_id()),
-            format!("{:?}", prior.with_0),
-            format!("{:?}", red_rule),
-            format!("{}", max_order),
-            format!("{}", cs.len()),
-            format!("{}", compute_pmin(&cov.correlation(), cs.len(), pmin_frac)),
-        ];
-        write_csv_line("summary.csv", vals.drain(..))
-            .chain_err(|| "error writing 'summary.csv'")?;
-
+        let beta = linreg(&cov, idx)?;
+        let delta = beta.transpose() * cov.mean.slice((0, 0), (idx, 1));
+        let mean_lcv = mean - delta[0];
+        debug!("mean: {:?}", mean);
+        debug!("lcv_mean: {:?}", mean_lcv);
         info!("{} CVs used.", cs.len());
         debug!("{:?}", cs.constraints);
         debug!(
@@ -217,12 +159,109 @@ pub fn estimate_expectations(
         );
 
         info!("Means:");
-        for (name, mean) in vars.iter().zip(means_lcv.iter()) {
-            info!("  {}: {}", name, mean);
+        for name in &vars {
+            info!("  {}: {}", name, mean_lcv);
         }
     }
 
     Ok(())
+}
+
+/// Perform a linear regression using indices [0, num_cv - 1] to fit the variable at num_cv.
+fn linreg(cov: &CovarianceAccumulator, num_cv: usize) -> Result<DMatrix<f64>> {
+    let corrs = cov.correlation();
+    debug!("correlations: {}", &corrs);
+    let c_vec = cov.cov.column(num_cv);
+    let c_vec = c_vec.slice((0, 0), (num_cv, 1));
+    let m = cov.cov.slice((0, 0), (num_cv, num_cv));
+    let det = m.determinant().abs();
+    debug!("det M = {:.4e}", det);
+    if det < 1e-15 {
+        warn!("Covariance matrix almost singular! det={:.4e}", det);
+    }
+    let m_inv = if det > 1e10 {
+        debug!("scaling before inversion");
+        let svec = m.diagonal().map(|x| 1.0 / x.sqrt());
+        let s_inv = MatrixN::from_diagonal(&svec);
+        let s_inv = s_inv.slice((0, 0), (num_cv, num_cv));
+        let sm_inv = corrs
+            .slice((0, 0), (num_cv, num_cv))
+            .try_inverse()
+            .chain_err(|| "inversion failed")?;
+        s_inv * sm_inv * s_inv
+    } else {
+        m.try_inverse().chain_err(|| "inversion failed")?
+    };
+    debug!("inv M = {}", &m_inv);
+    let r2 = (&c_vec.transpose() * &m_inv * c_vec / cov.cov[(num_cv, num_cv)])[0];
+    info!(
+        "Variance reduction: {:.4e}",
+        if num_cv > 0 { r2 } else { 0.0 }
+    );
+
+    Ok(&m_inv * c_vec)
+}
+
+pub struct CorrelationHeuristic {
+    pub red_rule: RedundancyRule,
+    pub pmin_frac: f64,
+}
+
+impl CorrelationHeuristic {
+    pub fn new(red_rule: RedundancyRule, pmin_frac: f64) -> CorrelationHeuristic {
+        CorrelationHeuristic {
+            red_rule,
+            pmin_frac,
+        }
+    }
+}
+
+impl ConstraintFilter for CorrelationHeuristic {
+    fn filter_constraints(&self, cs: &mut MomentConstraints, cov: &mut CovarianceAccumulator) {
+        // iterate over constraints
+        let corr = cov.correlation();
+        let mut to_rm = vec![];
+        let p_min = compute_pmin(&corr, cs.len(), self.pmin_frac);
+        for c_idx in 0..cs.len() {
+            let p = corr[(cov.dim() - 1, c_idx)].abs();
+            //let p_ci = correlation_ci(p, iteration, 0.999);
+            if cov.cov[(c_idx, c_idx)] < 1e-10 {
+                to_rm.push(c_idx);
+                continue;
+            }
+            if p < p_min {
+                to_rm.push(c_idx);
+                continue;
+            }
+            for c_idx_ in (c_idx + 1)..cs.len() {
+                let p_ = corr[(cov.dim() - 1, c_idx_)].abs();
+                let pp = corr[(c_idx, c_idx_)].abs();
+                //if p + p_ < 2.0 * pp {
+                if self.red_rule.redundant(p, p_, pp, p_min) {
+                    //debug!("c[{}] and c[{}] are redundant {} {} {}",
+                    //c_idx, c_idx_, p, p_, pp);
+                    if p_ > p {
+                        to_rm.push(c_idx);
+                        continue;
+                    } else {
+                        to_rm.push(c_idx_);
+                    }
+                }
+            }
+        }
+        remove_constraints(&mut to_rm, cs, cov);
+    }
+}
+
+fn remove_constraints(
+    to_rm: &mut Vec<usize>,
+    cs: &mut MomentConstraints,
+    cov: &mut CovarianceAccumulator,
+) {
+    to_rm.sort();
+    to_rm.dedup();
+    cov.remove_all(&to_rm);
+    cs.remove_all(&to_rm);
 }
 
 #[derive(Debug)]
@@ -246,63 +285,6 @@ impl RedundancyRule {
     }
 }
 
-fn filter_constraints(
-    cs: &mut MomentConstraints,
-    mut cov: CovarianceAccumulator,
-    _iteration: usize,
-    pmin_frac: f64,
-    red_rule: &RedundancyRule,
-) -> CovarianceAccumulator {
-    // iterate over constraints
-    let corr = cov.correlation();
-    let mut to_rm = vec![];
-    let p_min = compute_pmin(&corr, cs.len(), pmin_frac);
-    for c_idx in 0..cs.len() {
-        let p = corr[(cov.dim() - 1, c_idx)].abs();
-        //let p_ci = correlation_ci(p, iteration, 0.999);
-        if cov.cov[(c_idx, c_idx)] < 1e-10 {
-            to_rm.push(c_idx);
-            continue;
-        }
-        if p < p_min {
-            to_rm.push(c_idx);
-            continue;
-        }
-        for c_idx_ in (c_idx + 1)..cs.len() {
-            let p_ = corr[(cov.dim() - 1, c_idx_)].abs();
-            let pp = corr[(c_idx, c_idx_)].abs();
-            //if p + p_ < 2.0 * pp {
-            if red_rule.redundant(p, p_, pp, p_min) {
-                //debug!("c[{}] and c[{}] are redundant {} {} {}",
-                //c_idx, c_idx_, p, p_, pp);
-                if p_ > p {
-                    to_rm.push(c_idx);
-                    continue;
-                } else {
-                    to_rm.push(c_idx_);
-                }
-            }
-        }
-    }
-    to_rm.sort();
-    to_rm.dedup();
-    for &idx in to_rm.iter().rev() {
-        cs.remove(idx);
-        cov = cov.remove(idx);
-    }
-    if !to_rm.is_empty() {
-        //debug!(
-        //"removing {} covariates in iteration {}",
-        //to_rm.len(),
-        //iteration
-        //);
-        cs.defrag_accus();
-    }
-
-    cov
-}
-
-#[inline]
 fn compute_pmin(corr: &DMatrix<f64>, n_constraints: usize, pmin_frac: f64) -> f64 {
     (corr
         .column(n_constraints)
@@ -400,6 +382,7 @@ fn simulation<R: Rng>(
             break;
         }
     }
+
     Ok(())
 }
 

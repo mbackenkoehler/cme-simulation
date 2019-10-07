@@ -27,7 +27,7 @@ use cme::importance_sampling::*;
 use cme::model::ReactionNetwork;
 use cme::model_parser::ReactionNetworkParser;
 use cme::moment_estimation;
-use cme::moment_estimation::estimate_expectations;
+use cme::moment_estimation::{estimate_expectations, CorrelationHeuristic, InitialConstraints};
 use cme::rare_event::*;
 use cme::simulation;
 use cme::simulation_logger::CsvSimulationLogger;
@@ -396,7 +396,11 @@ fn run_mode_means(model: &mut ReactionNetwork, matches: &Matches) -> Result<()> 
     let tmax = parse_num(matches, "t", 100f64)?;
     let n = parse_num(matches, "n", 100_000usize)?;
     let lcv = matches.opt_present("lcv");
-    let nlam = parse_num(matches, "nlam", 20)?;
+    let nlam = if lcv {
+        parse_num(matches, "nlam", 20)?
+    } else {
+        0
+    };
     let pmin_frac = parse_num(matches, "pmin", 2.0)?;
     let reruns = parse_num(matches, "r", 1)?;
     let mut vars = matches.opt_strs("expectation");
@@ -423,6 +427,7 @@ fn run_mode_means(model: &mut ReactionNetwork, matches: &Matches) -> Result<()> 
         r => bail!("invalid redundancy rule: '{}'", r),
     };
     let max_order = parse_num(matches, "max-order", 1u32)?;
+    let mut initial_constraints = InitialConstraints::new(&model, prior, max_order);
     for v in &vars {
         if model.species.iter().all(|s| s != v) {
             bail!("invalid variable name: '{}'", v);
@@ -431,18 +436,14 @@ fn run_mode_means(model: &mut ReactionNetwork, matches: &Matches) -> Result<()> 
     if vars.is_empty() {
         vars = model.species.clone();
     }
+    let mut filter = CorrelationHeuristic::new(red_rule, pmin_frac);
     estimate_expectations(
         model,
         tmax,
-        n,
-        100,
+        (n, 50, reruns),
         vars.clone(),
-        !lcv,
-        max_order,
-        pmin_frac,
-        &prior,
-        &red_rule,
-        reruns,
+        &mut initial_constraints,
+        &mut filter,
     )
 }
 
