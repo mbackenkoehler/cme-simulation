@@ -8,6 +8,9 @@ use model::*;
 use progressbar::Progress;
 use rare_event::{RareEvent, TimeInterval};
 
+use std::fs::{File, OpenOptions};
+use std::io::{BufRead, BufReader, Error, Write};
+
 /// Estimate a rare event using the dwSSA algorithm. The rare event is given by
 /// 'rare_event'. The probability is estimated using
 /// importance sampling, where linear transformation parameters _gamma_ are
@@ -21,10 +24,24 @@ pub fn estimate_rare_event_prob<RE: RareEvent>(
     n: usize,
     rare_event: &RE,
 ) -> Result<f64> {
-    set_gamma(model, rho, k, rare_event)?;
+    let iterations = set_gamma(model, rho, k, rare_event)?;
     info!("estimate rare event with {} simulations.", n);
     let mut sum = 0.0;
     let mut pb = Progress::new(n as u64)?;
+    let mut res_file = OpenOptions::new()
+        .write(true)
+        .append(true)
+        .open("res.log")
+        .unwrap();
+    if iterations >= 100 {
+        writeln!(res_file, "-1,0").unwrap();
+        return Ok(-1.0);
+    }
+    let mut weight_file = OpenOptions::new()
+        .write(true)
+        .append(true)
+        .open("weights")
+        .unwrap();
     let s0: Vec<i32> = model
         .species
         .iter()
@@ -34,9 +51,13 @@ pub fn estimate_rare_event_prob<RE: RareEvent>(
         let mut s = s0.clone();
         let (distance, weight, _, _) = simulation_detailed(model, rare_event, false, &mut s)?;
         let event_weight = if distance == 0 { weight } else { 0.0 };
+
+        write!(weight_file, "{:.8e}\n", event_weight).unwrap();
         pb.tick();
         sum += event_weight;
     }
+    let estimate = sum / n as f64;
+    writeln!(res_file, "{},{:.8e}", iterations, estimate).unwrap();
     Ok(sum / n as f64)
 }
 
@@ -47,8 +68,8 @@ fn set_gamma<RE: RareEvent>(
     rho: f64,
     k: usize,
     rare_event: &RE,
-) -> Result<()> {
-    for i in 1.. {
+) -> Result<usize> {
+    for i in 1..100 {
         let best_size = (rho * k as f64).ceil() as usize;
         let mut best: Vec<(i32, f64, Vec<usize>, Vec<f64>)> = Vec::with_capacity(best_size + 1);
 
@@ -116,10 +137,11 @@ fn set_gamma<RE: RareEvent>(
         );
 
         if total_distance == 0 {
-            return Ok(());
+            return Ok(i);
         }
     }
-    unreachable!();
+    Ok(101)
+    //unreachable!();
 }
 
 /// Runs a biased simulation and returns the change-of-measure weighting _w_ alongside
